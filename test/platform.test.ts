@@ -9,7 +9,7 @@ jest.mock('homebridge-lib/EveHomeKitTypes', () => ({
 }));
 
 import { TapoPlatform } from '../src/platform.js';
-import { PLATFORM_NAME, PLUGIN_NAME } from '../src/settings.js';
+import { PLATFORM_NAME } from '../src/settings.js';
 
 class FakeCharacteristic {
   public value: unknown;
@@ -166,7 +166,7 @@ describe('TapoPlatform', () => {
   it('registers configured devices and wires on/off control', async () => {
     const api = new FakeApi();
     const client = new FakeClient();
-    const platform = new TapoPlatform(
+    new TapoPlatform(
       log as never,
       {
         platform: PLATFORM_NAME,

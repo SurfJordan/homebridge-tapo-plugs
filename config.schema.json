@@ -1,17 +1,84 @@
 {
-  "pluginAlias": "ExampleHomebridgePlugin",
+  "pluginAlias": "TapoPlugs",
   "pluginType": "platform",
   "singular": true,
   "strictValidation": false,
   "schema": {
     "type": "object",
-    "required": ["name"],
+    "required": [
+      "name",
+      "username",
+      "password"
+    ],
     "additionalProperties": false,
     "properties": {
       "name": {
         "title": "Name",
         "type": "string",
-        "default": "Example Dynamic Platform"
+        "default": "Tapo Smart Plugs"
+      },
+      "username": {
+        "title": "Tapo Account Email",
+        "type": "string"
+      },
+      "password": {
+        "title": "Tapo Account Password",
+        "type": "string",
+        "format": "password"
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (seconds)",
+        "type": "integer",
+        "minimum": 0,
+        "default": 15
+      },
+      "requestTimeout": {
+        "title": "Request Timeout (seconds)",
+        "type": "integer",
+        "minimum": 2,
+        "default": 8
+      },
+      "devices": {
+        "title": "Plugs",
+        "type": "array",
+        "default": [],
+        "items": {
+          "type": "object",
+          "required": [
+            "host"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "title": "Name Override",
+              "type": "string"
+            },
+            "host": {
+              "title": "IP or Hostname",
+              "type": "string",
+              "placeholder": "192.168.1.50"
+            },
+            "username": {
+              "title": "Device Username Override",
+              "type": "string"
+            },
+            "password": {
+              "title": "Device Password Override",
+              "type": "string",
+              "format": "password"
+            },
+            "pollingInterval": {
+              "title": "Polling Interval (seconds)",
+              "type": "integer",
+              "minimum": 0
+            },
+            "requestTimeout": {
+              "title": "Request Timeout (seconds)",
+              "type": "integer",
+              "minimum": 2
+            }
+          }
+        }
       }
     }
   }

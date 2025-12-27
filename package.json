@@ -4,29 +4,30 @@
   "type": "module",
   "version": "1.0.0",
   "private": true,
-  "description": "A short description about what your plugin does.",
+  "description": "Plugin designed to work with TP-Link Tapo smart plugs in Homebridge. Supports energy monitoring and control.",
   "author": "Jordan Carroll",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/USERNAME/GITHUB_PROJECT_NAME#readme",
+  "homepage": "https://github.com/SurfJordan/homebridge-tapo-plugs#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME.git"
+    "url": "https://github.com/SurfJordan/homebridge-tapo-plugs.git"
   },
   "bugs": {
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME/issues"
+    "url": "https://github.com/SurfJordan/homebridge-tapo-plugs/issues"
   },
   "keywords": [
     "homebridge-plugin"
   ],
   "main": "dist/index.js",
   "engines": {
-    "node": "^20.18.0 || ^22.10.0 || ^24.0.0",
+    "node": "^18.20.0 || ^20.18.0 || ^22.10.0 || ^24.0.0",
     "homebridge": "^1.8.0 || ^2.0.0-beta.0"
   },
   "scripts": {
     "build": "rimraf ./dist && tsc",
     "lint": "eslint . --max-warnings=0",
     "prepublishOnly": "npm run lint && npm run build",
+    "test": "jest",
     "watch": "npm run build && npm link && nodemon"
   },
   "dependencies": {
@@ -37,8 +38,11 @@
     "@types/node": "^24.10.1",
     "eslint": "^9.39.1",
     "homebridge": "^2.0.0-beta.55",
+    "jest": "^29.7.0",
     "nodemon": "^3.1.11",
     "rimraf": "^6.1.0",
+    "ts-jest": "^29.2.5",
+    "@types/jest": "^29.5.14",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4"

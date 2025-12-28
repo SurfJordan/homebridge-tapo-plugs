@@ -62,9 +62,6 @@ export class TapoPlatform implements DynamicPlatformPlugin {
       log: this.log,
     }));
 
-    this.log.error("🔥 TAPO platform constructor reached");
-    this.log.debug("🔥 TAPO debug test");
-
     if (!config || !config.name) {
       this.log.warn('No configuration found for Tapo platform.');
       return;

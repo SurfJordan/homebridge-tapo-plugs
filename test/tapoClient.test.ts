@@ -6,9 +6,16 @@ const deviceKey = Buffer.from('0123456789abcdef');
 const aesKey = deviceKey.slice(0, 16);
 const iv = aesKey;
 
-function wrapPublicKey(key: string): string {
-  const lines = key.match(/.{1,64}/g) ?? [key];
-  return `-----BEGIN RSA PUBLIC KEY-----\n${lines.join('\n')}\n-----END RSA PUBLIC KEY-----\n`;
+function encryptKeyFromBase64Der(key: string): Buffer {
+  const publicKey = crypto.createPublicKey({
+    key: Buffer.from(key, 'base64'),
+    format: 'der',
+    type: 'pkcs1',
+  });
+  return crypto.publicEncrypt(
+    { key: publicKey, padding: crypto.constants.RSA_PKCS1_PADDING },
+    deviceKey,
+  );
 }
 
 function encryptPayload(payload: unknown): string {
@@ -40,11 +47,7 @@ describe('TapoClient', () => {
 
       if (call === 1) {
         expect(body.method).toBe('handshake');
-        const publicKey = wrapPublicKey(body.params.key);
-        const encryptedKey = crypto.publicEncrypt(
-          { key: publicKey, padding: crypto.constants.RSA_PKCS1_PADDING },
-          deviceKey,
-        );
+        const encryptedKey = encryptKeyFromBase64Der(body.params.key);
 
         return new Response(JSON.stringify({
           error_code: 0,
@@ -117,11 +120,7 @@ describe('TapoClient', () => {
       const body = JSON.parse((options?.body as string) ?? '{}');
 
       if (call === 1) {
-        const publicKey = wrapPublicKey(body.params.key);
-        const encryptedKey = crypto.publicEncrypt(
-          { key: publicKey, padding: crypto.constants.RSA_PKCS1_PADDING },
-          deviceKey,
-        );
+        const encryptedKey = encryptKeyFromBase64Der(body.params.key);
 
         return new Response(JSON.stringify({
           error_code: 0,

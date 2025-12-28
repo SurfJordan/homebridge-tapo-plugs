@@ -48,6 +48,19 @@ interface TapoResponse<T = unknown> {
   msg?: string;
 }
 
+class NonJsonResponseError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly contentType: string,
+    public readonly server: string,
+    public readonly preview: string,
+  ) {
+    super(message);
+    this.name = 'NonJsonResponseError';
+  }
+}
+
 const DEFAULT_TIMEOUT = 8000;
 
 export class TapoClient implements TapoClientLike {
@@ -209,12 +222,30 @@ export class TapoClient implements TapoClientLike {
 
     const plans = this.getHandshakePlans();
     let lastError: TapoResponse | undefined;
+    let lastNonJsonError: NonJsonResponseError | undefined;
 
     for (const keyPair of this.keyPairs) {
       const candidates = this.getHandshakeKeyCandidates(keyPair);
       for (const candidate of candidates) {
         for (const plan of plans) {
-          const { data, headers } = await this.send(plan.build(candidate.value), false);
+          let data: TapoResponse;
+          let headers: Headers;
+          try {
+            ({ data, headers } = await this.send(plan.build(candidate.value), false));
+          } catch (error) {
+            if (error instanceof NonJsonResponseError) {
+              lastNonJsonError = error;
+              this.log?.debug?.(
+                'Handshake non-JSON response (%s/%s): %s',
+                candidate.label,
+                plan.label,
+                error.preview,
+              );
+              continue;
+            }
+            throw error;
+          }
+
           this.updateCookie(headers);
 
           const errorCode = data.error_code ?? 0;
@@ -240,6 +271,7 @@ export class TapoClient implements TapoClientLike {
           const { key, iv } = this.deriveKeyAndIv(decryptedKey);
           this.aesKey = key;
           this.iv = iv;
+          this.log?.debug?.('Handshake succeeded (%s/%s).', candidate.label, plan.label);
           return;
         }
       }
@@ -247,6 +279,10 @@ export class TapoClient implements TapoClientLike {
 
     if (lastError) {
       this.ensureOk(lastError, 'handshake');
+    }
+
+    if (lastNonJsonError) {
+      throw lastNonJsonError;
     }
 
     throw new Error('Handshake failed: no response from device');
@@ -285,7 +321,13 @@ export class TapoClient implements TapoClientLike {
           server,
           preview,
         );
-        throw new Error(`Tapo device returned non-JSON response (status ${response.status}). Check IP, network isolation, and device setup mode.`);
+        throw new NonJsonResponseError(
+          `Tapo device returned non-JSON response (status ${response.status}). Check IP, network isolation, and device setup mode.`,
+          response.status,
+          contentType,
+          server,
+          preview,
+        );
       }
       return { data, headers: response.headers };
     } catch (error) {

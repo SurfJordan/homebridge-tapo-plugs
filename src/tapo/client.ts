@@ -78,6 +78,7 @@ export class TapoClient implements TapoClientLike {
   private loginPromise?: Promise<void>;
   private readonly keyPairs = [
     generateKeyPairSync('rsa', { modulusLength: 1024, publicExponent: 0x10001 }),
+    generateKeyPairSync('rsa', { modulusLength: 1024, publicExponent: 0x3 }),
     generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 0x10001 }),
   ];
 
@@ -231,7 +232,7 @@ export class TapoClient implements TapoClientLike {
           let data: TapoResponse;
           let headers: Headers;
           try {
-            ({ data, headers } = await this.send(plan.build(candidate.value), false));
+            ({ data, headers } = await this.send(plan.build(candidate.value), false, { logNonJson: false }));
           } catch (error) {
             if (error instanceof NonJsonResponseError) {
               lastNonJsonError = error;
@@ -288,7 +289,11 @@ export class TapoClient implements TapoClientLike {
     throw new Error('Handshake failed: no response from device');
   }
 
-  private async send(body: Record<string, unknown>, includeToken: boolean): Promise<{ data: TapoResponse; headers: Headers }> {
+  private async send(
+    body: Record<string, unknown>,
+    includeToken: boolean,
+    options: { logNonJson?: boolean } = {},
+  ): Promise<{ data: TapoResponse; headers: Headers }> {
     const url = includeToken && this.token ? `${this.baseUrl}?token=${this.token}` : this.baseUrl;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
@@ -314,13 +319,23 @@ export class TapoClient implements TapoClientLike {
         data = JSON.parse(raw) as TapoResponse;
       } catch (error) {
         const preview = raw.trim().slice(0, 160).replace(/\s+/g, ' ');
-        this.log?.warn?.(
-          'Tapo returned non-JSON response (status %s, content-type %s, server %s): %s',
-          response.status,
-          contentType,
-          server,
-          preview,
-        );
+        if (options.logNonJson ?? true) {
+          this.log?.warn?.(
+            'Tapo returned non-JSON response (status %s, content-type %s, server %s): %s',
+            response.status,
+            contentType,
+            server,
+            preview,
+          );
+        } else {
+          this.log?.debug?.(
+            'Tapo returned non-JSON response (status %s, content-type %s, server %s): %s',
+            response.status,
+            contentType,
+            server,
+            preview,
+          );
+        }
         throw new NonJsonResponseError(
           `Tapo device returned non-JSON response (status ${response.status}). Check IP, network isolation, and device setup mode.`,
           response.status,
@@ -395,20 +410,37 @@ export class TapoClient implements TapoClientLike {
   }
 
   private getHandshakeKeyCandidates(keyPair: ReturnType<typeof generateKeyPairSync>) {
+    const keyDetails = keyPair.publicKey.asymmetricKeyDetails;
+    const modulus = keyDetails?.modulusLength ?? 0;
+    const exponent = keyDetails?.publicExponent ?? 0;
+    const keyLabel = `rsa${modulus || 'unknown'}-e${exponent || 'unknown'}`;
+
     const pkcs1Der = keyPair.publicKey.export({ type: 'pkcs1', format: 'der' }).toString('base64');
     const spkiDer = keyPair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
     const pkcs1Pem = keyPair.publicKey.export({ type: 'pkcs1', format: 'pem' }).toString();
     const spkiPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
     const pkcs1DerWrapped = this.wrapBase64(pkcs1Der);
     const spkiDerWrapped = this.wrapBase64(spkiDer);
+    const pkcs1PemBase64 = Buffer.from(pkcs1Pem).toString('base64');
+    const spkiPemBase64 = Buffer.from(spkiPem).toString('base64');
+    const pkcs1DerNoPad = pkcs1Der.replace(/=+$/g, '');
+    const spkiDerNoPad = spkiDer.replace(/=+$/g, '');
+    const pkcs1DerUrl = pkcs1Der.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    const spkiDerUrl = spkiDer.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 
     return [
-      { label: 'pkcs1-der', value: pkcs1Der },
-      { label: 'spki-der', value: spkiDer },
-      { label: 'pkcs1-der-lines', value: pkcs1DerWrapped },
-      { label: 'spki-der-lines', value: spkiDerWrapped },
-      { label: 'pkcs1-pem', value: pkcs1Pem },
-      { label: 'spki-pem', value: spkiPem },
+      { label: `${keyLabel}/pkcs1-der`, value: pkcs1Der },
+      { label: `${keyLabel}/spki-der`, value: spkiDer },
+      { label: `${keyLabel}/pkcs1-der-nopad`, value: pkcs1DerNoPad },
+      { label: `${keyLabel}/spki-der-nopad`, value: spkiDerNoPad },
+      { label: `${keyLabel}/pkcs1-der-url`, value: pkcs1DerUrl },
+      { label: `${keyLabel}/spki-der-url`, value: spkiDerUrl },
+      { label: `${keyLabel}/pkcs1-der-lines`, value: pkcs1DerWrapped },
+      { label: `${keyLabel}/spki-der-lines`, value: spkiDerWrapped },
+      { label: `${keyLabel}/pkcs1-pem`, value: pkcs1Pem },
+      { label: `${keyLabel}/spki-pem`, value: spkiPem },
+      { label: `${keyLabel}/pkcs1-pem-b64`, value: pkcs1PemBase64 },
+      { label: `${keyLabel}/spki-pem-b64`, value: spkiPemBase64 },
     ];
   }
 

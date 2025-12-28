@@ -54,9 +54,9 @@ When energy data is available, the plugin surfaces Eve consumption, voltage, cur
 
 ## Behaviour
 
-- Local-only calls to each plug (`handshake` → `login_device` → `set_device_info` / `get_device_info` / `get_energy_usage`).
+- Local-only calls via `tp-link-tapo-connect`, which supports both TPAP/KLAP (login v2) and legacy secure-passthrough devices.
 - Accessories are created/updated at launch; removed when a device is deleted from the config.
-- Model and nickname are pulled from the device automatically so you don’t need to enter the model manually.
+- Model and nickname are pulled from the device automatically so you do not need to enter the model manually.
 
 ## Development & Testing
 

@@ -2,7 +2,7 @@
   "name": "homebridge-tapo-plugs",
   "displayName": "Homebridge Tapo Plugs",
   "type": "module",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "private": true,
   "description": "Plugin designed to work with TP-Link Tapo smart plugs in Homebridge. Supports energy monitoring and control.",
   "author": "Jordan Carroll",
@@ -31,10 +31,12 @@
     "watch": "npm run build && npm link && nodemon"
   },
   "dependencies": {
-    "homebridge-lib": "^7.1.12"
+    "homebridge-lib": "^7.1.12",
+    "tp-link-tapo-connect": "^2.0.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@types/jest": "^29.5.14",
     "@types/node": "^24.10.1",
     "eslint": "^9.39.1",
     "homebridge": "^2.0.0-beta.55",
@@ -42,7 +44,6 @@
     "nodemon": "^3.1.11",
     "rimraf": "^6.1.0",
     "ts-jest": "^29.2.5",
-    "@types/jest": "^29.5.14",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4"

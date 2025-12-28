@@ -204,30 +204,48 @@ export class TapoClient implements TapoClientLike {
       return;
     }
 
-    const publicKey = this.keyPair.publicKey.export({ type: 'pkcs1', format: 'der' }).toString('base64');
+    const candidates = this.getHandshakeKeyCandidates();
+    let lastError: TapoResponse | undefined;
 
-    const { data, headers } = await this.send({
-      method: 'handshake',
-      params: { key: publicKey },
-      requestTimeMils: Date.now(),
-    }, false);
+    for (const candidate of candidates) {
+      const { data, headers } = await this.send({
+        method: 'handshake',
+        params: { key: candidate },
+        requestTimeMils: Date.now(),
+      }, false);
 
-    this.ensureOk(data, 'handshake');
-    this.updateCookie(headers);
+      this.updateCookie(headers);
 
-    const encryptedKey = (data.result as { key?: string } | undefined)?.key;
-    if (!encryptedKey) {
-      throw new Error('Handshake failed: key missing from response');
+      if ((data.error_code ?? 0) !== 0) {
+        lastError = data;
+        if (data.error_code === 1003) {
+          this.log?.debug?.('Handshake rejected, trying next key format.');
+          continue;
+        }
+        this.ensureOk(data, 'handshake');
+      }
+
+      const encryptedKey = (data.result as { key?: string } | undefined)?.key;
+      if (!encryptedKey) {
+        throw new Error('Handshake failed: key missing from response');
+      }
+
+      const decryptedKey = privateDecrypt(
+        { key: this.keyPair.privateKey, padding: constants.RSA_PKCS1_PADDING },
+        Buffer.from(encryptedKey, 'base64'),
+      );
+
+      const { key, iv } = this.deriveKeyAndIv(decryptedKey);
+      this.aesKey = key;
+      this.iv = iv;
+      return;
     }
 
-    const decryptedKey = privateDecrypt(
-      { key: this.keyPair.privateKey, padding: constants.RSA_PKCS1_PADDING },
-      Buffer.from(encryptedKey, 'base64'),
-    );
+    if (lastError) {
+      this.ensureOk(lastError, 'handshake');
+    }
 
-    const { key, iv } = this.deriveKeyAndIv(decryptedKey);
-    this.aesKey = key;
-    this.iv = iv;
+    throw new Error('Handshake failed: no response from device');
   }
 
   private async send(body: Record<string, unknown>, includeToken: boolean): Promise<{ data: TapoResponse; headers: Headers }> {
@@ -312,5 +330,19 @@ export class TapoClient implements TapoClientLike {
     }
 
     return { key: keyMaterial.slice(0, 16), iv: keyMaterial.slice(0, 16) };
+  }
+
+  private getHandshakeKeyCandidates(): string[] {
+    const pkcs1Der = this.keyPair.publicKey.export({ type: 'pkcs1', format: 'der' }).toString('base64');
+    const spkiDer = this.keyPair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    const pkcs1Pem = this.keyPair.publicKey.export({ type: 'pkcs1', format: 'pem' }).toString();
+    const spkiPem = this.keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+
+    return [
+      pkcs1Der,
+      spkiDer,
+      pkcs1Pem,
+      spkiPem,
+    ];
   }
 }

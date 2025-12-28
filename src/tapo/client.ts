@@ -174,10 +174,7 @@ export class TapoClient implements TapoClientLike {
       await this.handshake();
     }
 
-    const encryptedPayload = this.encrypt(JSON.stringify({
-      ...payload,
-      requestTimeMils: Date.now(),
-    }));
+    const encryptedPayload = this.encrypt(JSON.stringify(payload));
 
     const { data } = await this.send(
       {
@@ -188,7 +185,7 @@ export class TapoClient implements TapoClientLike {
       includeToken,
     );
 
-    this.ensureOk(data);
+    this.ensureOk(data, 'securePassthrough');
 
     const encryptedResponse = (data.result as { response?: string } | undefined)?.response;
     if (typeof encryptedResponse !== 'string') {
@@ -196,7 +193,8 @@ export class TapoClient implements TapoClientLike {
     }
 
     const decrypted = JSON.parse(this.decrypt(encryptedResponse)) as TapoResponse<T>;
-    this.ensureOk(decrypted);
+    const method = typeof payload.method === 'string' ? payload.method : 'request';
+    this.ensureOk(decrypted, method);
 
     return decrypted;
   }
@@ -229,8 +227,9 @@ export class TapoClient implements TapoClientLike {
       Buffer.from(encryptedKey, 'base64'),
     );
 
-    this.aesKey = decryptedKey.slice(0, 16);
-    this.iv = decryptedKey.slice(0, 16);
+    const { key, iv } = this.deriveKeyAndIv(decryptedKey);
+    this.aesKey = key;
+    this.iv = iv;
   }
 
   private async send(body: Record<string, unknown>, includeToken: boolean): Promise<{ data: TapoResponse; headers: Headers }> {
@@ -280,17 +279,39 @@ export class TapoClient implements TapoClientLike {
   }
 
   private updateCookie(headers: Headers) {
-    const setCookie = headers.get('set-cookie');
-    if (setCookie) {
-      const session = setCookie.split(';')[0];
-      this.cookie = session;
+    const headerWithSetCookie = headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = typeof headerWithSetCookie.getSetCookie === 'function' ? headerWithSetCookie.getSetCookie() : [];
+    const rawCookie = setCookies[0] ?? headers.get('set-cookie');
+
+    if (!rawCookie) {
+      return;
+    }
+
+    this.cookie = rawCookie.split(';')[0];
+  }
+
+  private ensureOk(response: TapoResponse, context?: string) {
+    const errorCode = response.error_code ?? 0;
+    if (errorCode !== 0) {
+      const prefix = context ? `Tapo request (${context}) failed` : 'Tapo request failed';
+      throw new Error(`${prefix} with code ${errorCode}${response.msg ? `: ${response.msg}` : ''}`);
     }
   }
 
-  private ensureOk(response: TapoResponse) {
-    const errorCode = response.error_code ?? 0;
-    if (errorCode !== 0) {
-      throw new Error(`Tapo request failed with code ${errorCode}${response.msg ? `: ${response.msg}` : ''}`);
+  private deriveKeyAndIv(keyMaterial: Buffer): { key: Buffer; iv: Buffer } {
+    const asString = keyMaterial.toString('utf8').trim();
+    if (/^[0-9a-fA-F]+$/.test(asString) && (asString.length === 32 || asString.length === 64)) {
+      const parsed = Buffer.from(asString, 'hex');
+      if (parsed.length >= 32) {
+        return { key: parsed.slice(0, 16), iv: parsed.slice(16, 32) };
+      }
+      return { key: parsed.slice(0, 16), iv: parsed.slice(0, 16) };
     }
+
+    if (keyMaterial.length >= 32) {
+      return { key: keyMaterial.slice(0, 16), iv: keyMaterial.slice(16, 32) };
+    }
+
+    return { key: keyMaterial.slice(0, 16), iv: keyMaterial.slice(0, 16) };
   }
 }

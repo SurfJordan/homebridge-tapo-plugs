@@ -1,6 +1,8 @@
 import type { Logging } from 'homebridge';
 import type { TapoDeviceInfo as ConnectDeviceInfo } from 'tp-link-tapo-connect';
 
+import { createLoginByIp, getLoginByIp } from './login.js';
+
 export interface TapoClientOptions {
   host: string;
   username: string;
@@ -144,11 +146,15 @@ export class TapoClient implements TapoClientLike {
   }
 
   private async loadLoginByIp(): Promise<LoginDeviceByIp> {
-    const module = await import('tp-link-tapo-connect');
-    if (typeof module.loginDeviceByIp !== 'function') {
-      throw new Error('tp-link-tapo-connect did not provide loginDeviceByIp');
-    }
-    return module.loginDeviceByIp as LoginDeviceByIp;
+    const [klapModule, legacyModule] = await Promise.all([
+      import('tp-link-tapo-connect/dist/klap-transport.js'),
+      import('tp-link-tapo-connect/dist/secure-passthrough-transport.js'),
+    ]);
+
+    const loginKlap = getLoginByIp(klapModule, 'klap-transport');
+    const loginLegacy = getLoginByIp(legacyModule, 'secure-passthrough-transport');
+
+    return createLoginByIp(loginKlap, loginLegacy, this.log);
   }
 
   private async applyAxiosTimeout(timeoutMs: number): Promise<void> {

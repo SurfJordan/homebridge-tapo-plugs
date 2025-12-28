@@ -331,7 +331,7 @@ export class TapoClient implements TapoClientLike {
   }
 
   private ensureOk(response: TapoResponse, context?: string) {
-    this.log?.debug?.("🔥🔥🔥 TAPO PLUGIN ENTRY LOADED");
+    console.error("🔥🔥🔥 ensureOk reached (console.error)", response);
     const errorCode = response.error_code ?? 0;
     if (errorCode !== 0) {
       const prefix = context

@@ -125,7 +125,7 @@ export class TapoPlatform implements DynamicPlatformPlugin {
       try {
         deviceInfo = await client.getDeviceInfo();
       } catch (error) {
-        this.log.warn('🔥🔥 Could not reach %s: %s', device.host, (error as Error).message);
+        this.log.warn('Could not reach %s: %s', device.host, (error as Error).message);
         return;
       }
 

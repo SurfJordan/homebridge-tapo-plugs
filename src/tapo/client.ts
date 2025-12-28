@@ -63,7 +63,10 @@ export class TapoClient implements TapoClientLike {
   private aesKey?: Buffer;
   private iv?: Buffer;
   private loginPromise?: Promise<void>;
-  private readonly keyPair = generateKeyPairSync('rsa', { modulusLength: 1024, publicExponent: 0x10001 });
+  private readonly keyPairs = [
+    generateKeyPairSync('rsa', { modulusLength: 1024, publicExponent: 0x10001 }),
+    generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 0x10001 }),
+  ];
 
   constructor(options: TapoClientOptions) {
     this.username = options.username;
@@ -204,41 +207,42 @@ export class TapoClient implements TapoClientLike {
       return;
     }
 
-    const candidates = this.getHandshakeKeyCandidates();
+    const plans = this.getHandshakePlans();
     let lastError: TapoResponse | undefined;
 
-    for (const candidate of candidates) {
-      const { data, headers } = await this.send({
-        method: 'handshake',
-        params: { key: candidate },
-        requestTimeMils: Date.now(),
-      }, false);
+    for (const keyPair of this.keyPairs) {
+      const candidates = this.getHandshakeKeyCandidates(keyPair);
+      for (const candidate of candidates) {
+        for (const plan of plans) {
+          const { data, headers } = await this.send(plan.build(candidate.value), false);
+          this.updateCookie(headers);
 
-      this.updateCookie(headers);
+          const errorCode = data.error_code ?? 0;
+          if (errorCode !== 0) {
+            lastError = data;
+            if (errorCode === 1003) {
+              this.log?.debug?.('Handshake rejected (%s/%s), trying next.', candidate.label, plan.label);
+              continue;
+            }
+            this.ensureOk(data, 'handshake');
+          }
 
-      if ((data.error_code ?? 0) !== 0) {
-        lastError = data;
-        if (data.error_code === 1003) {
-          this.log?.debug?.('Handshake rejected, trying next key format.');
-          continue;
+          const encryptedKey = (data.result as { key?: string } | undefined)?.key;
+          if (!encryptedKey) {
+            throw new Error('Handshake failed: key missing from response');
+          }
+
+          const decryptedKey = privateDecrypt(
+            { key: keyPair.privateKey, padding: constants.RSA_PKCS1_PADDING },
+            Buffer.from(encryptedKey, 'base64'),
+          );
+
+          const { key, iv } = this.deriveKeyAndIv(decryptedKey);
+          this.aesKey = key;
+          this.iv = iv;
+          return;
         }
-        this.ensureOk(data, 'handshake');
       }
-
-      const encryptedKey = (data.result as { key?: string } | undefined)?.key;
-      if (!encryptedKey) {
-        throw new Error('Handshake failed: key missing from response');
-      }
-
-      const decryptedKey = privateDecrypt(
-        { key: this.keyPair.privateKey, padding: constants.RSA_PKCS1_PADDING },
-        Buffer.from(encryptedKey, 'base64'),
-      );
-
-      const { key, iv } = this.deriveKeyAndIv(decryptedKey);
-      this.aesKey = key;
-      this.iv = iv;
-      return;
     }
 
     if (lastError) {
@@ -267,12 +271,20 @@ export class TapoClient implements TapoClientLike {
       this.updateCookie(response.headers);
 
       const raw = await response.text();
+      const contentType = response.headers.get('content-type') ?? 'unknown';
+      const server = response.headers.get('server') ?? 'unknown';
       let data: TapoResponse;
       try {
         data = JSON.parse(raw) as TapoResponse;
       } catch (error) {
         const preview = raw.trim().slice(0, 160).replace(/\s+/g, ' ');
-        this.log?.warn?.('Tapo returned non-JSON response (status %s): %s', response.status, preview);
+        this.log?.warn?.(
+          'Tapo returned non-JSON response (status %s, content-type %s, server %s): %s',
+          response.status,
+          contentType,
+          server,
+          preview,
+        );
         throw new Error(`Tapo device returned non-JSON response (status ${response.status}). Check IP, network isolation, and device setup mode.`);
       }
       return { data, headers: response.headers };
@@ -340,17 +352,53 @@ export class TapoClient implements TapoClientLike {
     return { key: keyMaterial.slice(0, 16), iv: keyMaterial.slice(0, 16) };
   }
 
-  private getHandshakeKeyCandidates(): string[] {
-    const pkcs1Der = this.keyPair.publicKey.export({ type: 'pkcs1', format: 'der' }).toString('base64');
-    const spkiDer = this.keyPair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
-    const pkcs1Pem = this.keyPair.publicKey.export({ type: 'pkcs1', format: 'pem' }).toString();
-    const spkiPem = this.keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  private getHandshakeKeyCandidates(keyPair: ReturnType<typeof generateKeyPairSync>) {
+    const pkcs1Der = keyPair.publicKey.export({ type: 'pkcs1', format: 'der' }).toString('base64');
+    const spkiDer = keyPair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+    const pkcs1Pem = keyPair.publicKey.export({ type: 'pkcs1', format: 'pem' }).toString();
+    const spkiPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    const pkcs1DerWrapped = this.wrapBase64(pkcs1Der);
+    const spkiDerWrapped = this.wrapBase64(spkiDer);
 
     return [
-      pkcs1Der,
-      spkiDer,
-      pkcs1Pem,
-      spkiPem,
+      { label: 'pkcs1-der', value: pkcs1Der },
+      { label: 'spki-der', value: spkiDer },
+      { label: 'pkcs1-der-lines', value: pkcs1DerWrapped },
+      { label: 'spki-der-lines', value: spkiDerWrapped },
+      { label: 'pkcs1-pem', value: pkcs1Pem },
+      { label: 'spki-pem', value: spkiPem },
     ];
+  }
+
+  private getHandshakePlans() {
+    const now = Date.now();
+    return [
+      {
+        label: 'root-requestTime',
+        build: (key: string) => ({
+          method: 'handshake',
+          params: { key },
+          requestTimeMils: now,
+        }),
+      },
+      {
+        label: 'params-requestTime',
+        build: (key: string) => ({
+          method: 'handshake',
+          params: { key, requestTimeMils: now },
+        }),
+      },
+      {
+        label: 'minimal',
+        build: (key: string) => ({
+          method: 'handshake',
+          params: { key },
+        }),
+      },
+    ];
+  }
+
+  private wrapBase64(value: string): string {
+    return value.match(/.{1,64}/g)?.join('\n') ?? value;
   }
 }

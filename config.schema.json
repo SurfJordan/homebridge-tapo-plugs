@@ -57,25 +57,6 @@
               "title": "IP or Hostname",
               "type": "string",
               "placeholder": "192.168.1.50"
-            },
-            "username": {
-              "title": "Device Username Override",
-              "type": "string"
-            },
-            "password": {
-              "title": "Device Password Override",
-              "type": "string",
-              "format": "password"
-            },
-            "pollingInterval": {
-              "title": "Polling Interval (seconds)",
-              "type": "integer",
-              "minimum": 0
-            },
-            "requestTimeout": {
-              "title": "Request Timeout (seconds)",
-              "type": "integer",
-              "minimum": 2
             }
           }
         }

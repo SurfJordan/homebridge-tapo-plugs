@@ -266,7 +266,15 @@ export class TapoClient implements TapoClientLike {
 
       this.updateCookie(response.headers);
 
-      const data = await response.json() as TapoResponse;
+      const raw = await response.text();
+      let data: TapoResponse;
+      try {
+        data = JSON.parse(raw) as TapoResponse;
+      } catch (error) {
+        const preview = raw.trim().slice(0, 160).replace(/\s+/g, ' ');
+        this.log?.warn?.('Tapo returned non-JSON response (status %s): %s', response.status, preview);
+        throw new Error(`Tapo device returned non-JSON response (status ${response.status}). Check IP, network isolation, and device setup mode.`);
+      }
       return { data, headers: response.headers };
     } catch (error) {
       this.log?.debug?.('Tapo request failed', error);

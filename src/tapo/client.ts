@@ -58,6 +58,15 @@ export class TapoClient implements TapoClientLike {
 
   private session?: TapoDeviceSession;
   private loginPromise?: Promise<void>;
+  private readonly recoverableErrorCodes = new Set([
+    'ETIMEDOUT',
+    'ESOCKETTIMEDOUT',
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'EPIPE',
+  ]);
 
   constructor(options: TapoClientOptions) {
     this.host = options.host;
@@ -94,48 +103,54 @@ export class TapoClient implements TapoClientLike {
   }
 
   async getDeviceInfo(): Promise<TapoDeviceInfo> {
-    const session = await this.getSession();
-    const info = await session.getDeviceInfo();
+    return this.withRecovery('getDeviceInfo', async () => {
+      const session = await this.getSession();
+      const info = await session.getDeviceInfo();
 
-    return {
-      deviceId: info.device_id ?? 'unknown-device',
-      model: info.model ?? 'Tapo Plug',
-      nickname: info.nickname,
-      on: Boolean(info.device_on),
-      mac: info.mac,
-      raw: info,
-    };
+      return {
+        deviceId: info.device_id ?? 'unknown-device',
+        model: info.model ?? 'Tapo Plug',
+        nickname: info.nickname,
+        on: Boolean(info.device_on),
+        mac: info.mac,
+        raw: info,
+      };
+    });
   }
 
   async getEnergyUsage(): Promise<TapoEnergyUsage> {
-    const session = await this.getSession();
-    const usage = await session.getEnergyUsage();
+    return this.withRecovery('getEnergyUsage', async () => {
+      const session = await this.getSession();
+      const usage = await session.getEnergyUsage();
 
-    const currentPower = this.readNumber(usage, 'current_power', 0) ?? 0;
-    const todayEnergy = this.readNumber(usage, 'today_energy');
-    const monthEnergy = this.readNumber(usage, 'month_energy');
-    const totalEnergy = this.readNumber(usage, 'total_energy');
-    const voltage = this.readNumber(usage, 'voltage');
-    const current = this.readNumber(usage, 'current');
+      const currentPower = this.readNumber(usage, 'current_power', 0) ?? 0;
+      const todayEnergy = this.readNumber(usage, 'today_energy');
+      const monthEnergy = this.readNumber(usage, 'month_energy');
+      const totalEnergy = this.readNumber(usage, 'total_energy');
+      const voltage = this.readNumber(usage, 'voltage');
+      const current = this.readNumber(usage, 'current');
 
-    return {
-      currentPower,
-      todayEnergy,
-      monthEnergy,
-      totalEnergy,
-      voltage,
-      current,
-      raw: usage,
-    };
+      return {
+        currentPower,
+        todayEnergy,
+        monthEnergy,
+        totalEnergy,
+        voltage,
+        current,
+        raw: usage,
+      };
+    });
   }
 
   async setPower(on: boolean): Promise<void> {
-    const session = await this.getSession();
-    if (on) {
-      await session.turnOn();
-    } else {
-      await session.turnOff();
-    }
+    await this.withRecovery('setPower', async () => {
+      const session = await this.getSession();
+      if (on) {
+        await session.turnOn();
+      } else {
+        await session.turnOff();
+      }
+    });
   }
 
   private async getSession(): Promise<TapoDeviceSession> {
@@ -144,6 +159,69 @@ export class TapoClient implements TapoClientLike {
       throw new Error('Tapo session not available after login.');
     }
     return this.session;
+  }
+
+  private resetSession() {
+    this.session = undefined;
+    this.loginPromise = undefined;
+  }
+
+  private async withRecovery<T>(operation: string, action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (!this.isRecoverableError(error)) {
+        throw error;
+      }
+
+      this.log?.warn?.('Retrying %s for %s after error: %s', operation, this.host, (error as Error).message);
+      this.resetSession();
+      return action();
+    }
+  }
+
+  private isRecoverableError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const code = (error as { code?: string }).code;
+    if (code && this.recoverableErrorCodes.has(code)) {
+      return true;
+    }
+
+    const message = (error as Error).message ?? '';
+    const lower = message.toLowerCase();
+    if (!lower) {
+      return false;
+    }
+
+    const nonRecoverable = [
+      'invalid credentials',
+      'incorrect email',
+      'incorrect password',
+      'email or password incorrect',
+      'missing credentials',
+    ];
+    if (nonRecoverable.some((token) => lower.includes(token))) {
+      return false;
+    }
+
+    const recoverable = [
+      'timeout',
+      'timed out',
+      'session timeout',
+      'session params error',
+      'status 403',
+      'handshake',
+      'econnreset',
+      'econnrefused',
+      'ehostunreach',
+      'enetunreach',
+      'socket hang up',
+    ];
+
+    return recoverable.some((token) => lower.includes(token));
   }
 
   private async loadLoginByIp(): Promise<LoginDeviceByIp> {

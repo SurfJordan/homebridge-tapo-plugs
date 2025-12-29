@@ -76,4 +76,49 @@ describe('TapoClient', () => {
     expect(session.turnOn).toHaveBeenCalledTimes(1);
     expect(session.turnOff).toHaveBeenCalledTimes(1);
   });
+
+  it('retries once on recoverable errors', async () => {
+    const firstSession = {
+      turnOn: jest.fn(),
+      turnOff: jest.fn(),
+      getDeviceInfo: jest.fn().mockRejectedValue(new Error('timeout of 8000ms exceeded')),
+      getEnergyUsage: jest.fn(),
+    };
+
+    const secondSession = {
+      turnOn: jest.fn(),
+      turnOff: jest.fn(),
+      getDeviceInfo: jest.fn().mockResolvedValue({
+        device_id: 'ABC123',
+        model: 'P110',
+        device_on: true,
+      }),
+      getEnergyUsage: jest.fn(),
+    };
+
+    const loginByIp = jest.fn()
+      .mockResolvedValueOnce(firstSession)
+      .mockResolvedValueOnce(secondSession);
+    const client = new TapoClient({ host, ...credentials, loginByIp });
+
+    const info = await client.getDeviceInfo();
+
+    expect(info.deviceId).toBe('ABC123');
+    expect(loginByIp).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry on credential errors', async () => {
+    const session = {
+      turnOn: jest.fn(),
+      turnOff: jest.fn(),
+      getDeviceInfo: jest.fn().mockRejectedValue(new Error('email or password incorrect')),
+      getEnergyUsage: jest.fn(),
+    };
+
+    const loginByIp = jest.fn().mockResolvedValue(session);
+    const client = new TapoClient({ host, ...credentials, loginByIp });
+
+    await expect(client.getDeviceInfo()).rejects.toThrow('email or password incorrect');
+    expect(loginByIp).toHaveBeenCalledTimes(1);
+  });
 });

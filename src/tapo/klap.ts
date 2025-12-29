@@ -6,6 +6,8 @@ const AES_CIPHER_ALGORITHM = 'aes-128-cbc';
 const HANDSHAKE_HEADERS = {
   'Content-Type': 'application/octet-stream',
   'Accept': 'application/octet-stream',
+  'User-Agent': 'Tapo',
+  'Connection': 'keep-alive',
 };
 
 type AxiosResponseLike = {
@@ -88,7 +90,10 @@ const createHttpError = (stage: string, response: AxiosResponseLike): Error => {
   const details = preview
     ? `status ${status}, content-type ${contentType}, body ${preview}`
     : `status ${status}, content-type ${contentType}`;
-  return new Error(`${stage} failed (${details})`);
+  const hint = stage === 'handshake1' && status === 403
+    ? ' Local control may be disabled in the Tapo app (Device Settings > Local Network).'
+    : '';
+  return new Error(`${stage} failed (${details})${hint}`);
 };
 
 const extractSessionCookie = (headers: Record<string, unknown>): string => {

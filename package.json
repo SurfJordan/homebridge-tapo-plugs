@@ -2,7 +2,7 @@
   "name": "homebridge-tapo-plugs",
   "displayName": "Homebridge Tapo Plugs",
   "type": "module",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "private": true,
   "description": "Plugin designed to work with TP-Link Tapo smart plugs in Homebridge. Supports energy monitoring and control.",
   "author": "Jordan Carroll",
